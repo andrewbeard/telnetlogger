@@ -164,7 +164,7 @@ create_ipv6_socket(int port)
 		return -1;
 	}
 
-	/* Now the final initializaiton step */
+	/* Now the final initialization step */
 	err = listen(fd, 10);
 	if (err < 0) {
 		ERROR_MSG("listen(%u): %s\n", port,
@@ -213,12 +213,13 @@ matches(const char *rhs, const char *lhs, int len)
 void 
 log_connection(FILE *fp, const char *login, int login_len,const char *password, int password_len, const char *hostname) 
 {
-    /*
+    /* Skip logging either of these if they pop up.  They're not login
+     * attempts, they're shell commands because the bot already thinks it has
+     * logged in successfully */
     if (matches("shell", login, login_len) && matches("sh", password, password_len))
         return;
     if (matches("enable", login, login_len) && matches("system", password, password_len))
         return;
-    */
 
     pthread_mutex_lock(&output);
     fprintf(fp, "%lu, %s,'", (unsigned long)time(NULL), hostname);
@@ -227,6 +228,7 @@ log_connection(FILE *fp, const char *login, int login_len,const char *password, 
     print_string(fp, password, password_len);
     fprintf(fp, "'\n");
     pthread_mutex_unlock(&output);
+    fflush(fp);
 }
 
 /******************************************************************************
@@ -353,7 +355,7 @@ recv_nvt_line(int fd, char *buf, int sizeof_buf, int flags, int *in_state)
 			state = 0;
 			break;
 		default:
-			fprintf(stderr, "[internalo error: unknown state");
+			fprintf(stderr, "[internal error: unknown state");
 			state = 0;
 			break;
 		}
@@ -447,6 +449,7 @@ again:
 		goto error;
 
 	/* Print the resulting connection information */
+    ERROR_MSG("[-] %s: logging connection attempt\n", args->peername);
     log_connection(args->fp_log, login, login_length, password, password_length, args->peername);
 
 	/* Print error and loop around to do it again */
