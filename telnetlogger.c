@@ -222,11 +222,11 @@ log_connection(FILE *fp, const char *login, int login_len,const char *password, 
 
     pthread_mutex_lock(&output);
     fprintf(fp, "%lu, %s,'", (unsigned long)time(NULL), hostname);
-	print_string(fp, login, login_len);
+    print_string(fp, login, login_len);
     fprintf(fp, "','");
     print_string(fp, password, password_len);
-    fprintf(fp, "'");
-	pthread_mutex_unlock(&output);
+    fprintf(fp, "'\n");
+    pthread_mutex_unlock(&output);
 }
 
 /******************************************************************************
