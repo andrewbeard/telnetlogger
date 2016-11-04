@@ -40,7 +40,8 @@ It'll also compile/run on Windows.
 # Output
 
 The program prints a single line in CSV format:
-1478281930, 220.134.232.209,'root','dreambox'
+
+    1478281930, 220.134.232.209,'root','dreambox'
 
 This represents the UNIX-time when the login was attempted, the source IP address, and the quoted
 form of the attempted username and password.
