@@ -48,6 +48,7 @@ typedef uintptr_t pthread_t;
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <time.h>
 
 /******************************************************************************
  * A mutex so multiple threads printing output don't conflict with
@@ -60,8 +61,7 @@ pthread_mutex_t output;
 struct ThreadArgs {
 	pthread_t handle;
 	int fd;
-	FILE *fp_passwords;
-	FILE *fp_ips;
+	FILE *fp_log;
 	struct sockaddr_in6 peer;
 	socklen_t peerlen;
 	char peername[256];
@@ -164,7 +164,7 @@ create_ipv6_socket(int port)
 		return -1;
 	}
 
-	/* Now the final initializaiton step */
+	/* Now the final initialization step */
 	err = listen(fd, 10);
 	if (err < 0) {
 		ERROR_MSG("listen(%u): %s\n", port,
@@ -210,34 +210,25 @@ matches(const char *rhs, const char *lhs, int len)
 /******************************************************************************
 * Print the results.
 ******************************************************************************/
-void
-print_passwords(FILE *fp, const char *login, int login_len, const char *password, int password_len)
+void 
+log_connection(FILE *fp, const char *login, int login_len,const char *password, int password_len, const char *hostname) 
 {
-	if (matches("shell", login, login_len) && matches("sh", password, password_len))
-		return;
-	if (matches("enable", login, login_len) && matches("system", password, password_len))
-		return;
+    /* Skip logging either of these if they pop up.  They're not login
+     * attempts, they're shell commands because the bot already thinks it has
+     * logged in successfully */
+    if (matches("shell", login, login_len) && matches("sh", password, password_len))
+        return;
+    if (matches("enable", login, login_len) && matches("system", password, password_len))
+        return;
 
-	/* pretty print the two fields */
-	pthread_mutex_lock(&output);
-	print_string(fp, login, login_len);
-	fprintf(fp, " ");
-	print_string(fp, password, password_len);
-	fprintf(fp, "\n");
-	fflush(fp);
-	pthread_mutex_unlock(&output);
-}
-
-/******************************************************************************
-* Print the results.
-******************************************************************************/
-void
-print_ip(FILE *fp, const char *hostname)
-{
-	pthread_mutex_lock(&output);
-	fprintf(fp, "%s\n", hostname);
-	fflush(fp);
-	pthread_mutex_unlock(&output);
+    pthread_mutex_lock(&output);
+    fprintf(fp, "%lu, %s,'", (unsigned long)time(NULL), hostname);
+    print_string(fp, login, login_len);
+    fprintf(fp, "','");
+    print_string(fp, password, password_len);
+    fprintf(fp, "'\n");
+    pthread_mutex_unlock(&output);
+    fflush(fp);
 }
 
 /******************************************************************************
@@ -364,7 +355,7 @@ recv_nvt_line(int fd, char *buf, int sizeof_buf, int flags, int *in_state)
 			state = 0;
 			break;
 		default:
-			fprintf(stderr, "[internalo error: unknown state");
+			fprintf(stderr, "[internal error: unknown state");
 			state = 0;
 			break;
 		}
@@ -457,9 +448,9 @@ again:
 	if (password_length <= 0)
 		goto error;
 
-	/* Print the resulting username/password combination */
-	print_passwords(args->fp_passwords, login, login_length, password, password_length);
-	print_ip(args->fp_ips, args->peername);
+	/* Print the resulting connection information */
+    ERROR_MSG("[-] %s: logging connection attempt\n", args->peername);
+    log_connection(args->fp_log, login, login_length, password, password_length, args->peername);
 
 	/* Print error and loop around to do it again */
 	if (state == 1)
@@ -487,7 +478,7 @@ error:
 /******************************************************************************
  ******************************************************************************/
 void
-daemon_thread(int port, FILE *fp_passwords, FILE *fp_ips)
+daemon_thread(int port, FILE *fp_log)
 {
 
 	int fd;
@@ -512,8 +503,7 @@ daemon_thread(int port, FILE *fp_passwords, FILE *fp_ips)
 		args = malloc(sizeof(*args));
 		memset(args, 0, sizeof(*args));
 		args->fd = newfd;
-		args->fp_passwords = fp_passwords;
-		args->fp_ips = fp_ips;
+		args->fp_log = fp_log;
 		args->peerlen = sizeof(args->peer);
 		getpeername(args->fd, (struct sockaddr*)&args->peer, &args->peerlen);
 		getnameinfo((struct sockaddr*)&args->peer, args->peerlen, args->peername, sizeof(args->peername), NULL, 0, NI_NUMERICHOST| NI_NUMERICSERV);
@@ -533,8 +523,7 @@ daemon_thread(int port, FILE *fp_passwords, FILE *fp_ips)
 int
 main(int argc, char *argv[])
 {
-	FILE *fp_passwords = stdout;
-	FILE *fp_ips = stdout;
+	FILE *fp_log = stdout;
 	int i;
 	int port = 23;
 
@@ -559,24 +548,13 @@ main(int argc, char *argv[])
 			exit(1);
 		}
 		switch (argv[i][1]) {
-		case 'p':
+		case 'o':
 			if (++i >= argc) {
-				fprintf(stderr, "expected parameter after -%c\n", 'p');
+				fprintf(stderr, "expected parameter after -%c\n", 'o');
 				exit(1);
 			}
-			fp_passwords = fopen(argv[i], "wt");
-			if (fp_passwords == NULL) {
-				perror(argv[i]);
-				exit(1);
-			}
-			break;
-		case 'i':
-			if (++i >= argc) {
-				fprintf(stderr, "expected parameter after -%c\n", 'i');
-				exit(1);
-			}
-			fp_ips = fopen(argv[i], "wt");
-			if (fp_ips == NULL) {
+			fp_log = fopen(argv[i], "wt");
+			if (fp_log == NULL) {
 				perror(argv[i]);
 				exit(1);
 			}
@@ -603,14 +581,13 @@ main(int argc, char *argv[])
 		case 'h':
 		case '?':
 		case 'H':
-			fprintf(stderr, "usage:\n telnetlogger [-p passwords.txt] [-i ips.txt]\n");
+			fprintf(stderr, "usage:\n telnetlogger [-o output.txt] [-l port]\n");
 			exit(1);
 			break;
 		}
 	}
 
-	daemon_thread(port, fp_passwords, fp_ips);
+	daemon_thread(port, fp_log);
 
 	return 0;
 }
-
